@@ -5,6 +5,7 @@ import select
 import random
 import json
 import datetime
+import time
 
 from os import environ
 
@@ -56,24 +57,6 @@ def checkSuccessor(succHostname, succPort):
     # mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     succAddr = (succHostname, succPort)
 
-    # jsonFile = open("object.json", "r+")
-    # jsonContent = json.load(jsonFile)
-    # jsonFile.close()
-    #
-    # jsonContent["cmd"] = "pred?"
-    # jsonContent["port"] = currNode.port
-    # jsonContent["hostname"] = currNode.host
-    # jsonContent["ID"] = currNode.id
-    #
-    # # jsonFile = open("object.json", "w+")
-    # # jsonFile.write(json.dumps(jsonContent))
-    # # jsonFile.close()
-    #
-    # jsonString = json.dumps(jsonContent)
-    # print(jsonString)
-    # clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # clientSocket.bind(address)
-
     predId = 0
     recvData = ''
     receivedMsg = ''
@@ -94,9 +77,10 @@ def checkSuccessor(succHostname, succPort):
         print("Didn't get the respond (check successor)...timeout: ", toe)
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         receivedMsg = currNode.lastKnownResponse
+        joinTheRing(succHostname, succPort)
 
-        newMessageStr = createMessage(jsonContent, 'setPred', currNode.lastKnownResponse['me']['port'], currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['ID'])
-        mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
+        # newMessageStr = createMessage(jsonContent, 'setPred', currNode.lastKnownResponse['me']['port'], currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['ID'])
+        # mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
     # print("resoponse: ", recvData)
     print("pred id: ", predId)
     # print(addr)
@@ -112,10 +96,19 @@ def joinTheRing(hostname, port):
     wholeResponse = ''
     responseStorage = ''
     wholeResponse = checkSuccessor(hostname, port)  # check with the bootstrap now, this is a json object
-    if wholeResponse != '':
-        responseStorage = wholeResponse
-    else:
-        wholeResponse = responseStorage
+    # if wholeResponse != '':
+    #     responseStorage = wholeResponse
+    # else:
+    #     wholeResponse = responseStorage
+    nextTime = time.time()
+    if wholeResponse['thePred']['port'] == currNode.port:
+        print("======== I'm in the CORRECT position ========")
+        # checkSuccessor(hostname, port)
+        # nextTime += 30
+        # sleepTime = nextTime - time.time()
+        # if sleepTime > 0:
+        #     time.sleep(sleepTime)
+        return
 
     if wholeResponse['thePred']['ID'] < currNode.id:
         newMessage = wholeResponse['thePred']
@@ -123,8 +116,7 @@ def joinTheRing(hostname, port):
         newMessage['query'] = ''
         newMessage['hops'] = 0
         newMessageStr = json.dumps(newMessage)
-        # clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # clientSocket.bind(address)
+
         mySocket.sendto(newMessageStr, (wholeResponse['me']['hostname'], wholeResponse['me']['port']))
 
         print("join the ring: ")
@@ -136,13 +128,14 @@ def joinTheRing(hostname, port):
 
 
 def stabilize():
+    print("-------------------------------------------------------------------------------------------")
     newMessage = createMessage(jsonContent, "pred?", currNode.port, currNode.host, currNode.id)
-    succAddr = (currNode.successor.host, currNode.successor.port)
+    succAddr = (currNode.successor['hostname'], currNode.successor['port'])
     predId = 0
     recvData = ''
     receivedMsg = ''
     mySocket.settimeout(2)
-
+    # todo: check every 30 seconds
     try:
         mySocket.sendto(newMessage, succAddr)
         (recvData, addr) = mySocket.recvfrom(4096)
@@ -150,20 +143,26 @@ def stabilize():
         receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
         predId = receivedMsg['thePred']['ID']
         if predId > currNode.id:  # if successor's predecessor is greater (after) you...
+            print("Sending 'setPred' to 'thePred' and set my successor to be 'thePred'...")
             updatePredMsg = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
             newSuccAddr = (receivedMsg['thePred']['hostname'], receivedMsg['thePred']['port'])
             mySocket.sendto(updatePredMsg, newSuccAddr)
             currNode.setSuccessor(receivedMsg['thePred'])
         elif predId < currNode.id:  # if successor's predecessor is greater (after) you...
+            print("Sending 'setPred' to 'me'...")
             updatePredMsg = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
             newSuccAddr = (receivedMsg['me']['hostname'], receivedMsg['me']['port'])
             mySocket.sendto(updatePredMsg, newSuccAddr)
+        else:
+            print("\nThis is me in stabilization...\n")
 
     except socket.timeout as toe:
-        print("Didn't get the respond (check successor)...timeout: ", toe)
+        print("Didn't get the respond (stabilize)...timeout: ", toe)
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
 
+
+# def replyToRequest(requestCmd,)
 
 # MAIN
 
@@ -181,9 +180,21 @@ jsonString = json.dumps(jsonContent)
 mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 mySocket.bind(address)
 
-# while True:
-#     if not currNode.inRing:
-#         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
-#     else:
+nexttime = time.time()
+while True:
+    if not currNode.inRing:
+        print("\nI'm not in the ring yet...")
+        joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+        nexttime += 10
+        sleeptime = nexttime - time.time()
+        if sleeptime > 0:
+            time.sleep(sleeptime)
+    else:
+        print("\nI'm in the ring...")
+        stabilize()
+        nexttime += 10
+        sleeptime = nexttime - time.time()
+        if sleeptime > 0:
+            time.sleep(sleeptime)
 
-joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+# joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
