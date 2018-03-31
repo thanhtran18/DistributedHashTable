@@ -25,7 +25,7 @@ class Node:
         self.predecessorId = 0
         self.predecessorHost = ''
         self.predecessorPort = 0
-        self.successor = {}
+        self.successor = {"hostname": '', "port": -1, "ID": 0}
         self.id = random.randint(1, 2 ** key_size - 2)
         # self.id = 65534
         self.bootstrapPort = 15000
@@ -76,14 +76,14 @@ def createMessage(jsonObject, command, port, hostname, id):
     jsonObject['ID'] = id
     return json.dumps(jsonObject)
 
-
+# this returns a json object
 def checkSuccessor(succHostname, succPort):
     # mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     succAddr = (succHostname, succPort)
 
     predId = 0
     recvData = ''
-    receivedMsg = ''
+    receivedMsg = {}  # this is a json object
     mySocket.settimeout(2)
     mySocket.sendto(jsonString, succAddr)
 
@@ -103,6 +103,8 @@ def checkSuccessor(succHostname, succPort):
         print("Didn't get the respond (check successor)...timeout: ", toe)
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         receivedMsg = currNode.lastKnownResponse
+        print("receivedMsg: ", receivedMsg)
+        # receivedMsg = ''
         # joinTheRing(succHostname, succPort)
         # print("DSFds")
         print("last known: ", currNode.lastKnownResponse)
@@ -111,6 +113,8 @@ def checkSuccessor(succHostname, succPort):
         print("Sent this 'setPred' message to ,", (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
         currNode.setSuccessor(currNode.lastKnownResponse['me'])
+        currNode.setInRing(True)
+        receivedMsg = {}
     # print("resoponse: ", recvData)
     print("pred id: ", predId)
     # print(addr)
@@ -125,11 +129,13 @@ def joinTheRing(hostname, port):
     print("My id: ", currNode.id)
 
     wholeResponse = checkSuccessor(hostname, port)  # check with the bootstrap now, this is a json object
-
+    if wholeResponse == {}:
+        return
     nextTime = time.time()
     if wholeResponse['thePred']['port'] == currNode.port:
         print("======== I'm in the CORRECT position ========")
         currNode.setInRing(True)
+        currNode.setSuccessor(wholeResponse['me'])
         # checkSuccessor(hostname, port)
         # nextTime += 30
         # sleepTime = nextTime - time.time()
@@ -215,6 +221,7 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 
     # elif requestCmd == 'find':
 
+
     return responseMsg
 
 
@@ -250,6 +257,14 @@ while keepRunning:
     if not currNode.isInRing():
         print("\nI'm not in the ring yet...")
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+    else:
+        # print("\nI'm in the ring now...")
+        time.sleep(0.5)
+        timer += 0.5
+        # print("timer: ", timer)
+        if timer >= 10 and timer <= 11:
+            stabilize()
+            timer = 0
         # nexttime += 10
         # sleeptime = nexttime - time.time()
         # if sleeptime > 0:
@@ -275,6 +290,13 @@ while keepRunning:
                 mySocket.close()
                 keepRunning = False
                 break
+            # else:  # handling the query key
+            #     try:
+            #         queryKey = int(userInput)
+            #     except ValueError:
+            #         print("Wrong input format. It's supposed to be an int")
+            #     else:
+
 
         elif desc == socketFD:
             # if not currNode.isInRing():
@@ -306,9 +328,9 @@ while keepRunning:
             # sleeptime = nexttime - time.time()
             # if sleeptime > 0:
             #     time.sleep(sleeptime)
-    time.sleep(0.1)
-    timer += 0.1
-    if timer == 10:
-        stabilize()
-        timer = 0
+    # time.sleep(0.1)
+    # timer += 0.1
+    # if timer == 10:
+    #     stabilize()
+    #     timer = 0
 
