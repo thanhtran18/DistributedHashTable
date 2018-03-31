@@ -6,6 +6,7 @@ import random
 import json
 import datetime
 import time
+import sys
 
 from os import environ
 
@@ -26,6 +27,7 @@ class Node:
         self.predecessorPort = 0
         self.successor = {}
         self.id = random.randint(1, 2 ** key_size - 2)
+        # self.id = 65533
         self.bootstrapPort = 15000
         self.bootstrapHost = 'silicon.cs.umanitoba.ca'
         self.bootstrapId = 2 ** key_size - 1
@@ -80,7 +82,7 @@ def checkSuccessor(succHostname, succPort):
     try:
         (recvData, addr) = mySocket.recvfrom(4096)
         if recvData:
-            print("Receiced message (check successor): ", recvData)
+            print("Receiced message from ", addr, " (check successor): ", recvData)
             receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
             if 'me' not in receivedMsg and 'thePred' not in receivedMsg:
                 replyToRequest(recvData)
@@ -97,6 +99,7 @@ def checkSuccessor(succHostname, succPort):
         # print("DSFds")
         print("last known: ", currNode.lastKnownResponse)
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
+        print("Sent this 'setPred' message to ,", (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
         currNode.setSuccessor(currNode.lastKnownResponse['me'])
     # print("resoponse: ", recvData)
@@ -110,7 +113,7 @@ def checkSuccessor(succHostname, succPort):
 # hostname of port of the successor
 def joinTheRing(hostname, port):
     print("-------------------------------------------------------------------------------------------")
-    print("curr node id: ", currNode.id)
+    print("My id: ", currNode.id)
 
     wholeResponse = checkSuccessor(hostname, port)  # check with the bootstrap now, this is a json object
 
@@ -130,6 +133,7 @@ def joinTheRing(hostname, port):
         # newMessageStr = json.dumps(newMessage)
 
         mySocket.sendto(newMessageStr, (wholeResponse['me']['hostname'], wholeResponse['me']['port']))
+        print("My repsonse with 'setPred' (join the ring): ", newMessageStr)
         currNode.setSuccessor(wholeResponse['me'])
         print("joined the ring!")
         currNode.setInRing(True)
@@ -149,10 +153,10 @@ def stabilize():
     # todo: check every 30 seconds
     try:
         mySocket.sendto(newMessage, succAddr)
-        print("Sent 'pred?' to successor.")
+        print("Sent 'pred?' to successor at: ", succAddr)
         (recvData, addr) = mySocket.recvfrom(4096)
         print("Sender's address: ", address)
-        print("Successor's message (stabilize): ", recvData)
+        print("Received successor's message (stabilize): ", recvData)
         receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
         if 'me' not in receivedMsg and 'thePred' not in receivedMsg:
             replyToRequest(recvData)
@@ -181,7 +185,7 @@ def stabilize():
 
 # this returns a string
 def replyToRequest(inputMessage):  # inputMessage is a string
-    responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
+    responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred", "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
     responseMsg = ''
     inputObject = json.loads(inputMessage)
     requestCmd = inputObject['cmd']
@@ -218,7 +222,17 @@ mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 mySocket.bind(address)
 
 nexttime = time.time()
-while True:
+
+# handle input
+
+print("===READY 1===")
+
+print("===READY 2===")
+keepRunning = True
+while keepRunning:
+    socketFD = mySocket.fileno()  # file descriptor (an int)
+    (readFD, writeFD, errorFD) = select.select([socketFD, sys.stdin], [], [], 0.0)
+
     if not currNode.isInRing():
         print("\nI'm not in the ring yet...")
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
@@ -227,21 +241,51 @@ while True:
         if sleeptime > 0:
             time.sleep(sleeptime)
     else:
-        mySocket.settimeout(10)
-        try:
-            requestMsg, senderAddr = mySocket.recvfrom(4096)
-            print("The received message is: ", requestMsg)
-            requestObject = json.loads(requestMsg)
-            requestCmd = requestObject['cmd']
-            if requestCmd == 'pred?' or requestCmd == 'setPred':
-                myResponse = replyToRequest(requestMsg)
-
-                mySocket.sendto(myResponse, senderAddr)
-        except socket.timeout as toe:
-            print("There is no request message! ", toe)
         print("\nI'm in the ring...")
         stabilize()
         nexttime += 10
         sleeptime = nexttime - time.time()
         if sleeptime > 0:
             time.sleep(sleeptime)
+
+    for desc in readFD:
+        if desc == sys.stdin:
+            print("Getting stdin...")
+            userInput = sys.stdin.readline()
+            print(userInput)
+            if userInput == '\n':  # stop when enter key was pressed
+                print("stopped")
+                mySocket.close()
+                keepRunning = False
+                break
+
+        elif desc == socketFD:
+            # if not currNode.isInRing():
+            #     print("\nI'm not in the ring yet...")
+            #     joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+            #     nexttime += 10
+            #     sleeptime = nexttime - time.time()
+            #     if sleeptime > 0:
+            #         time.sleep(sleeptime)
+            # else:
+            print("Getting socket message...")
+            mySocket.settimeout(10)
+            try:
+                requestMsg, senderAddr = mySocket.recvfrom(4096)
+                print("The received message is: ", requestMsg)
+                requestObject = json.loads(requestMsg)
+                if "cmd" in requestObject:
+                    requestCmd = requestObject['cmd']
+                    if requestCmd == 'pred?' or requestCmd == 'setPred':
+                        myResponse = replyToRequest(requestMsg)
+                        mySocket.sendto(myResponse, senderAddr)
+                else:  # in the case there is no "cmd": "myPred" in the response
+                    continue
+            except socket.timeout as toe:
+                print("There is no request message! ", toe)
+            # print("\nI'm in the ring...")
+            # stabilize()
+            # nexttime += 10
+            # sleeptime = nexttime - time.time()
+            # if sleeptime > 0:
+            #     time.sleep(sleeptime)
