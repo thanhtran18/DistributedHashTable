@@ -27,13 +27,15 @@ class Node:
         self.predecessorPort = 0
         self.successor = {}
         self.id = random.randint(1, 2 ** key_size - 2)
-        # self.id = 65533
+        # self.id = 65534
         self.bootstrapPort = 15000
         self.bootstrapHost = 'silicon.cs.umanitoba.ca'
         self.bootstrapId = 2 ** key_size - 1
         self.bootstrapAddr = (self.bootstrapHost, self.bootstrapPort)
         self.lastKnownResponse = {}
         self.inRing = False
+        self.query = -1
+        self.hops = 0
 
     def setSuccessor(self, newSucc):
         self.successor = newSucc
@@ -55,6 +57,12 @@ class Node:
 
     def isInRing(self):
         return self.inRing
+
+    def setQuery(self, newQuery):
+        self.query = newQuery
+
+    def getQuery(self):
+        return self.query
 
 
 # currNode = Node()
@@ -98,6 +106,7 @@ def checkSuccessor(succHostname, succPort):
         # joinTheRing(succHostname, succPort)
         # print("DSFds")
         print("last known: ", currNode.lastKnownResponse)
+        # jsonContent['query'] = 65535
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
         print("Sent this 'setPred' message to ,", (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
@@ -120,6 +129,7 @@ def joinTheRing(hostname, port):
     nextTime = time.time()
     if wholeResponse['thePred']['port'] == currNode.port:
         print("======== I'm in the CORRECT position ========")
+        currNode.setInRing(True)
         # checkSuccessor(hostname, port)
         # nextTime += 30
         # sleepTime = nextTime - time.time()
@@ -144,6 +154,7 @@ def joinTheRing(hostname, port):
 
 def stabilize():
     print("-------------------------------------------------------------------------------------------")
+    # jsonContent['query'] = 65535
     newMessage = createMessage(jsonContent, "pred?", currNode.port, currNode.host, currNode.id)
     succAddr = (currNode.successor['hostname'], currNode.successor['port'])
     predId = 0
@@ -201,6 +212,9 @@ def replyToRequest(inputMessage):  # inputMessage is a string
         currNode.savePredHost(inputObject['hostname'])
         currNode.savePredId(inputObject['ID'])
         currNode.savePredPort(inputObject['port'])
+
+    # elif requestCmd == 'find':
+
     return responseMsg
 
 
@@ -222,12 +236,12 @@ mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 mySocket.bind(address)
 
 nexttime = time.time()
+timer = 0
 
 # handle input
+# todo: should be able to stop immediately after pressing enter
+# todo: get the int
 
-print("===READY 1===")
-
-print("===READY 2===")
 keepRunning = True
 while keepRunning:
     socketFD = mySocket.fileno()  # file descriptor (an int)
@@ -236,17 +250,20 @@ while keepRunning:
     if not currNode.isInRing():
         print("\nI'm not in the ring yet...")
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
-        nexttime += 10
-        sleeptime = nexttime - time.time()
-        if sleeptime > 0:
-            time.sleep(sleeptime)
-    else:
-        print("\nI'm in the ring...")
-        stabilize()
-        nexttime += 10
-        sleeptime = nexttime - time.time()
-        if sleeptime > 0:
-            time.sleep(sleeptime)
+        # nexttime += 10
+        # sleeptime = nexttime - time.time()
+        # if sleeptime > 0:
+        #     time.sleep(sleeptime)
+    # else:
+    #     print("\nI'm in the ring...")
+    #     stabilize()
+        # nexttime += 10
+        # sleeptime = nexttime - time.time()
+        # print("sleeo time: ", sleeptime)
+        # # if sleeptime == 10:
+        # #     stabilize()
+        # if sleeptime > 0:
+        #     time.sleep(sleeptime)
 
     for desc in readFD:
         if desc == sys.stdin:
@@ -268,7 +285,7 @@ while keepRunning:
             #     if sleeptime > 0:
             #         time.sleep(sleeptime)
             # else:
-            print("Getting socket message...")
+            print("-------------------------------------------------------------------------\nGetting socket message...")
             mySocket.settimeout(10)
             try:
                 requestMsg, senderAddr = mySocket.recvfrom(4096)
@@ -289,3 +306,9 @@ while keepRunning:
             # sleeptime = nexttime - time.time()
             # if sleeptime > 0:
             #     time.sleep(sleeptime)
+    time.sleep(0.1)
+    timer += 0.1
+    if timer == 10:
+        stabilize()
+        timer = 0
+
