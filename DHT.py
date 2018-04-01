@@ -119,8 +119,6 @@ def checkSuccessor(succHostname, succPort):
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         print("Attempting to set the last known node as my successor to join the ring...")
         receivedMsg = currNode.lastKnownResponse
-        # print("last known: ", currNode.lastKnownResponse)
-        # jsonContent['query'] = 65535
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
         print("Sent this 'setPred' message to last known node: ", (currNode.lastKnownResponse['me']['hostname'],
                                                    currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
@@ -150,11 +148,6 @@ def joinTheRing(hostname, port):
         print("======== I'm in the CORRECT position already ========")
         currNode.setInRing(True)
         currNode.setSuccessor(wholeResponse['me'])
-        # checkSuccessor(hostname, port)
-        # nextTime += 30
-        # sleepTime = nextTime - time.time()
-        # if sleepTime > 0:
-        #     time.sleep(sleepTime)
         return
 
     if wholeResponse['thePred']['ID'] < currNode.id or wholeResponse['thePred']['ID'] == 0:
@@ -177,14 +170,13 @@ def joinTheRing(hostname, port):
 
 def stabilize():
     print("-------------------------------------------------------------------------------------------")
-    # jsonContent['query'] = 65535
     newMessage = createMessage(jsonContent, "pred?", currNode.port, currNode.host, currNode.id)
     succAddr = (currNode.successor['hostname'], currNode.successor['port'])
     predId = 0
     recvData = ''
     receivedMsg = ''
     mySocket.settimeout(2)
-    # todo: check every 30 seconds
+
     try:
         mySocket.sendto(newMessage, succAddr)
         print("Sent 'pred?' to my successor at: ", succAddr)
@@ -251,7 +243,9 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 currNode = Node()
 address = (currNode.host, currNode.port)
 
-jsonFile = open("object.json", "r+")
+# jsonFile = open("object.json", "r+")
+jsonFile = {"cmd": "", "port": 0, "ID": 0, "hostname": "", "query": "", "hops": 0
+}
 jsonContent = json.load(jsonFile)  # jsonContent is now a json object
 jsonFile.close()
 
@@ -269,8 +263,6 @@ timer = 0
 
 # handle input
 # todo: should be able to stop immediately after pressing enter
-# todo: get the int
-# todo: handle the case where you type in something else other than an int, it should generate a number
 
 keepRunning = True
 while keepRunning:
@@ -288,20 +280,6 @@ while keepRunning:
         if 10 <= timer <= 11:
             stabilize()
             timer = 0
-        # nexttime += 10
-        # sleeptime = nexttime - time.time()
-        # if sleeptime > 0:
-        #     time.sleep(sleeptime)
-    # else:
-    #     print("\nI'm in the ring...")
-    #     stabilize()
-        # nexttime += 10
-        # sleeptime = nexttime - time.time()
-        # print("sleeo time: ", sleeptime)
-        # # if sleeptime == 10:
-        # #     stabilize()
-        # if sleeptime > 0:
-        #     time.sleep(sleeptime)
 
     for desc in readFD:
         if desc == sys.stdin:
@@ -330,14 +308,6 @@ while keepRunning:
                     mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
 
         elif desc == socketFD:
-            # if not currNode.isInRing():
-            #     print("\nI'm not in the ring yet...")
-            #     joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
-            #     nexttime += 10
-            #     sleeptime = nexttime - time.time()
-            #     if sleeptime > 0:
-            #         time.sleep(sleeptime)
-            # else:
             print("-------------------------------------------------------------------------\nGetting socket message...")
             mySocket.settimeout(10)
             try:
@@ -371,22 +341,11 @@ while keepRunning:
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
                         else:
                             myResponse = createMessageWithQuery(jsonContent, "owner", currNode.port, currNode.host,
-                                                                currNode.id, requestObject['query'], 0)
-                            # todo: handle the case where the find message's query is a not number
+                                                                currNode.id, requestObject['query'],
+                                                                requestObject['hops'] + 1)
                             mySocket.sendto(myResponse, (requestObject['hostname'], requestObject['port']))
                 else:  # in the case there is no "cmd": "myPred" in the response
                     continue
             except socket.timeout as toe:
                 print("There is no request message! ", toe)
-            # print("\nI'm in the ring...")
-            # stabilize()
-            # nexttime += 10
-            # sleeptime = nexttime - time.time()
-            # if sleeptime > 0:
-            #     time.sleep(sleeptime)
-    # time.sleep(0.1)
-    # timer += 0.1
-    # if timer == 10:
-    #     stabilize()
-    #     timer = 0
 
