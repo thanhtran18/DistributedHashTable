@@ -10,12 +10,8 @@ import sys
 
 from os import environ
 
-# HOST = socket.getfqdn()
-# PORT = 15086
-# address = (HOST, PORT)
-# mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
 key_size = 16
+
 
 # todo: handle the input in the while loop with 'cmd' and 'me'
 class Node:
@@ -23,8 +19,8 @@ class Node:
         self.port = 15086
         self.host = socket.gethostname()
         self.predecessorId = 0
-        self.predecessorHost = ''
-        self.predecessorPort = 0
+        self.predecessorHostname = ''
+        self.predecessorPort = -1
         self.successor = {"hostname": '', "port": -1, "ID": 0}
         self.id = random.randint(1, 2 ** key_size - 2)
         # self.id = 65533
@@ -50,7 +46,7 @@ class Node:
         self.predecessorId = predId
 
     def savePredHost(self, predHost):
-        self.predecessorHost = predHost
+        self.predecessorHostname = predHost
 
     def savePredPort(self, predPort):
         self.predecessorPort = predPort
@@ -89,7 +85,6 @@ def createMessageWithQuery(jsonObject, command, port, hostname, id, query, hops)
 
 # this returns a json object
 def checkSuccessor(succHostname, succPort):
-    # mySocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     succAddr = (succHostname, succPort)
 
     predId = 0
@@ -104,6 +99,15 @@ def checkSuccessor(succHostname, succPort):
             print("Receiced message from ", addr, " (check successor): ", recvData)
             receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
             if 'me' not in receivedMsg and 'thePred' not in receivedMsg:
+                if receivedMsg['port'] == currNode.port and receivedMsg['hostname'] == currNode.host:
+                    newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
+                    print("Oops, got a message from an old version of myself. About to rejoin!")
+                    print("Sent this 'setPred' message to last known node: ",
+                          (currNode.lastKnownResponse['me']['hostname'],
+                           currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
+                    mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'],
+                                                    currNode.lastKnownResponse['me']['port']))
+                    return {}
                 replyToRequest(recvData)
                 return currNode.lastKnownResponse
             predId = receivedMsg['thePred']['ID']
@@ -113,16 +117,15 @@ def checkSuccessor(succHostname, succPort):
         # step 1 of pred?
         print("Didn't get the respond (check successor)...timeout: ", toe)
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
+        print("Attempting to set the last known node as my successor to join the ring...")
         receivedMsg = currNode.lastKnownResponse
-        print("receivedMsg: ", receivedMsg)
-        # receivedMsg = ''
-        # joinTheRing(succHostname, succPort)
-        # print("DSFds")
-        print("last known: ", currNode.lastKnownResponse)
+        # print("last known: ", currNode.lastKnownResponse)
         # jsonContent['query'] = 65535
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
-        print("Sent this 'setPred' message to ,", (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
-        mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
+        print("Sent this 'setPred' message to last known node: ", (currNode.lastKnownResponse['me']['hostname'],
+                                                   currNode.lastKnownResponse['me']['port']), ": ", newMessageStr)
+        mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'],
+                                        currNode.lastKnownResponse['me']['port']))
         currNode.setSuccessor(currNode.lastKnownResponse['me'])
         currNode.setInRing(True)
         receivedMsg = {}
@@ -143,8 +146,8 @@ def joinTheRing(hostname, port):
     if wholeResponse == {}:
         return
     nextTime = time.time()
-    if wholeResponse['thePred']['port'] == currNode.port:
-        print("======== I'm in the CORRECT position ========")
+    if wholeResponse['thePred']['port'] == currNode.port and wholeResponse['thePred']['ID'] == currNode.id:
+        print("======== I'm in the CORRECT position already ========")
         currNode.setInRing(True)
         currNode.setSuccessor(wholeResponse['me'])
         # checkSuccessor(hostname, port)
@@ -154,14 +157,17 @@ def joinTheRing(hostname, port):
         #     time.sleep(sleepTime)
         return
 
-    if wholeResponse['thePred']['ID'] < currNode.id:
+    if wholeResponse['thePred']['ID'] < currNode.id or wholeResponse['thePred']['ID'] == 0:
         # newMessage = wholeResponse['thePred']
         newMessageStr = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
         # newMessageStr = json.dumps(newMessage)
 
         mySocket.sendto(newMessageStr, (wholeResponse['me']['hostname'], wholeResponse['me']['port']))
-        print("My repsonse with 'setPred' (join the ring): ", newMessageStr)
+        print("My message with 'setPred' cmd (join the ring): ", newMessageStr)
         currNode.setSuccessor(wholeResponse['me'])
+        # logging
+        print("My current successor: ", currNode.successor)
+        print("My current predecessor: ", (currNode.predecessorHostname, currNode.predecessorPort))
         print("joined the ring!")
         currNode.setInRing(True)
 
@@ -181,28 +187,31 @@ def stabilize():
     # todo: check every 30 seconds
     try:
         mySocket.sendto(newMessage, succAddr)
-        print("Sent 'pred?' to successor at: ", succAddr)
+        print("Sent 'pred?' to my successor at: ", succAddr)
         (recvData, addr) = mySocket.recvfrom(4096)
-        print("Sender's address: ", address)
+        # print("Sender's address: ", address)
         print("Received successor's message (stabilize): ", recvData)
         receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
         if 'me' not in receivedMsg and 'thePred' not in receivedMsg:
-            replyToRequest(recvData)
+            # if requestMsg['port'] == currNode.port and requestMsg['hostname'] == currNode.host:
+            #
+            updatePredMsg = replyToRequest(recvData)
+            mySocket.sendto(updatePredMsg, addr)
             return
         predId = receivedMsg['thePred']['ID']
         if predId > currNode.id:  # if successor's predecessor is greater (after) you...
-            print("Sending 'setPred' to 'thePred' and set my successor to be 'thePred'...")
+            print("Trying to stabilize - Sending 'setPred' to 'thePred' and set my successor to be 'thePred'...")
             updatePredMsg = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
             newSuccAddr = (receivedMsg['thePred']['hostname'], receivedMsg['thePred']['port'])
             mySocket.sendto(updatePredMsg, newSuccAddr)
             currNode.setSuccessor(receivedMsg['thePred'])
         elif predId < currNode.id:  # if successor's predecessor is greater (after) you...
-            print("Sending 'setPred' to 'me'...")
+            print("Tryin to stabilize - Sending 'setPred' to 'me'...")
             updatePredMsg = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
             newSuccAddr = (receivedMsg['me']['hostname'], receivedMsg['me']['port'])
             mySocket.sendto(updatePredMsg, newSuccAddr)
         else:
-            print("\nThis is me in stabilization...\n")
+            print("\nThis is me in stabilization (in the correct position)...\n")
 
     except socket.timeout as toe:
         currNode.setInRing(False)
@@ -214,12 +223,13 @@ def stabilize():
 # this returns a string
 # input doesn't contain 'me' or 'thePred'
 def replyToRequest(inputMessage):  # inputMessage is a string
-    responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred", "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
+    responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred",
+                      "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
     responseMsg = ''
     inputObject = json.loads(inputMessage)
     requestCmd = inputObject['cmd']
     if requestCmd == 'pred?':
-        responseObject['thePred']['hostname'] = currNode.predecessorHost
+        responseObject['thePred']['hostname'] = currNode.predecessorHostname
         responseObject['thePred']['port'] = currNode.predecessorPort
         responseObject['thePred']['ID'] = currNode.predecessorId
         responseMsg = json.dumps(responseObject)
@@ -227,15 +237,15 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 
     elif requestCmd == 'setPred':
         # save 'me' (the sender) as my pred now
+        print("My predecessor has changed from: ", (currNode.predecessorHostname, currNode.predecessorPort, "... to ..."))
         currNode.savePredHost(inputObject['hostname'])
         currNode.savePredId(inputObject['ID'])
         currNode.savePredPort(inputObject['port'])
+        print((currNode.predecessorHostname, currNode.predecessorPort))
 
     # elif requestCmd == 'find':
 
     return responseMsg
-
-
 
 # MAIN
 currNode = Node()
@@ -275,7 +285,7 @@ while keepRunning:
         time.sleep(0.5)
         timer += 0.5
         # print("timer: ", timer)
-        if timer >= 10 and timer <= 11:
+        if 10 <= timer <= 11:
             stabilize()
             timer = 0
         # nexttime += 10
@@ -308,11 +318,15 @@ while keepRunning:
                     queryKey = int(userInput)
                 except ValueError:
                     print("Wrong input format. It's supposed to be an int")
-                else:
+                    print("Generating a new query...")
+                    queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
+                finally:
                     while queryKey <= currNode.id:
                         queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
-                    findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id, int(userInput), currNode.hops)
-                    print("Sent this 'find' message to ", (currNode.successor['hostname'], currNode.successor['port']), ': ', findMessage)
+                    findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id,
+                                                         int(userInput), currNode.hops)
+                    print("Sent this 'find' message to ", (currNode.successor['hostname'], currNode.successor['port']),
+                          ': ', findMessage)
                     mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
 
         elif desc == socketFD:
@@ -349,11 +363,16 @@ while keepRunning:
                     elif requestCmd == 'find':
                         # pass the message to my successor if the query is not my id
                         if requestObject['query'] != currNode.id:
+                            myResponse = createMessageWithQuery(requestObject, requestObject['cmd'],
+                                                                requestObject['port'], requestObject['hostname'],
+                                                                requestObject['id'], requestObject['query'],
+                                                                requestObject['hops'] + 1)
                             myResponse = json.dumps(requestObject)
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
                         else:
-                            myResponse = createMessageWithQuery(jsonContent, "owner", currNode.port, currNode.host, currNode.id, requestObject['query'], 0)
-                            # todo: handle the case where the find message's query is a number
+                            myResponse = createMessageWithQuery(jsonContent, "owner", currNode.port, currNode.host,
+                                                                currNode.id, requestObject['query'], 0)
+                            # todo: handle the case where the find message's query is a not number
                             mySocket.sendto(myResponse, (requestObject['hostname'], requestObject['port']))
                 else:  # in the case there is no "cmd": "myPred" in the response
                     continue
