@@ -17,7 +17,7 @@ from os import environ
 
 key_size = 16
 
-
+# todo: handle the input in the while loop with 'cmd' and 'me'
 class Node:
     def __init__(self):
         self.port = 15086
@@ -27,7 +27,7 @@ class Node:
         self.predecessorPort = 0
         self.successor = {"hostname": '', "port": -1, "ID": 0}
         self.id = random.randint(1, 2 ** key_size - 2)
-        # self.id = 65534
+        # self.id = 65533
         self.bootstrapPort = 15000
         self.bootstrapHost = 'silicon.cs.umanitoba.ca'
         self.bootstrapId = 2 ** key_size - 1
@@ -75,6 +75,17 @@ def createMessage(jsonObject, command, port, hostname, id):
     jsonObject['hostname'] = hostname
     jsonObject['ID'] = id
     return json.dumps(jsonObject)
+
+
+def createMessageWithQuery(jsonObject, command, port, hostname, id, query, hops):
+    jsonObject['cmd'] = command
+    jsonObject['port'] = port
+    jsonObject['hostname'] = hostname
+    jsonObject['ID'] = id
+    jsonObject['query'] = query
+    jsonObject['hops'] = hops
+    return json.dumps(jsonObject)
+
 
 # this returns a json object
 def checkSuccessor(succHostname, succPort):
@@ -201,6 +212,7 @@ def stabilize():
 
 
 # this returns a string
+# input doesn't contain 'me' or 'thePred'
 def replyToRequest(inputMessage):  # inputMessage is a string
     responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred", "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
     responseMsg = ''
@@ -221,8 +233,8 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 
     # elif requestCmd == 'find':
 
-
     return responseMsg
+
 
 
 # MAIN
@@ -248,6 +260,7 @@ timer = 0
 # handle input
 # todo: should be able to stop immediately after pressing enter
 # todo: get the int
+# todo: handle the case where you type in something else other than an int, it should generate a number
 
 keepRunning = True
 while keepRunning:
@@ -290,13 +303,17 @@ while keepRunning:
                 mySocket.close()
                 keepRunning = False
                 break
-            # else:  # handling the query key
-            #     try:
-            #         queryKey = int(userInput)
-            #     except ValueError:
-            #         print("Wrong input format. It's supposed to be an int")
-            #     else:
-
+            else:  # handling the query key
+                try:
+                    queryKey = int(userInput)
+                except ValueError:
+                    print("Wrong input format. It's supposed to be an int")
+                else:
+                    while queryKey <= currNode.id:
+                        queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
+                    findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id, int(userInput), currNode.hops)
+                    print("Sent this 'find' message to ", (currNode.successor['hostname'], currNode.successor['port']), ': ', findMessage)
+                    mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
 
         elif desc == socketFD:
             # if not currNode.isInRing():
@@ -311,13 +328,33 @@ while keepRunning:
             mySocket.settimeout(10)
             try:
                 requestMsg, senderAddr = mySocket.recvfrom(4096)
+                if requestMsg == '':
+                    print("The received message is empty!")
+                    continue
+                print("Sender: ", senderAddr)
                 print("The received message is: ", requestMsg)
                 requestObject = json.loads(requestMsg)
-                if "cmd" in requestObject:
+                if "cmd" in requestObject and 'me' in requestObject:
+                    if requestObject['thePred']['port'] == currNode.port:
+                        # if you meet your old version
+                        if requestObject['thePred']['ID'] != currNode.id:
+                            joinTheRing(requestObject['me']['hostname'], requestObject['me']['port'])
+                        else:
+                            break
+                if "cmd" in requestObject and 'me' not in requestObject:
                     requestCmd = requestObject['cmd']
                     if requestCmd == 'pred?' or requestCmd == 'setPred':
                         myResponse = replyToRequest(requestMsg)
                         mySocket.sendto(myResponse, senderAddr)
+                    elif requestCmd == 'find':
+                        # pass the message to my successor if the query is not my id
+                        if requestObject['query'] != currNode.id:
+                            myResponse = json.dumps(requestObject)
+                            mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
+                        else:
+                            myResponse = createMessageWithQuery(jsonContent, "owner", currNode.port, currNode.host, currNode.id, requestObject['query'], 0)
+                            # todo: handle the case where the find message's query is a number
+                            mySocket.sendto(myResponse, (requestObject['hostname'], requestObject['port']))
                 else:  # in the case there is no "cmd": "myPred" in the response
                     continue
             except socket.timeout as toe:
