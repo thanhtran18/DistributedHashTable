@@ -275,7 +275,7 @@ while keepRunning:
         time.sleep(0.5)
         timer += 0.5
         # print("timer: ", timer)
-        if 10 <= timer <= 11:
+        if 15 <= timer <= 16:
             stabilize()
             timer = 0
 
@@ -283,7 +283,6 @@ while keepRunning:
         if desc == sys.stdin:
             print("Getting stdin...")
             userInput = sys.stdin.readline()
-            print(userInput)
             if userInput == '\n':  # stop when enter key was pressed
                 print("stopped")
                 mySocket.close()
@@ -294,13 +293,13 @@ while keepRunning:
                     queryKey = int(userInput)
                 except ValueError:
                     print("Wrong input format. It's supposed to be an int")
-                    print("Generating a new query...")
                     queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
+                    print("Generated this new query: ", queryKey)
                 finally:
                     while queryKey <= currNode.id:
                         queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
                     findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id,
-                                                         int(userInput), currNode.hops)
+                                                         int(queryKey), currNode.hops)
                     print("Sent this 'find' message to ", (currNode.successor['hostname'], currNode.successor['port']),
                           ': ', findMessage)
                     mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
@@ -333,7 +332,7 @@ while keepRunning:
                         if requestObject['query'] != currNode.id:
                             myResponse = createMessageWithQuery(requestObject, requestObject['cmd'],
                                                                 requestObject['port'], requestObject['hostname'],
-                                                                requestObject['id'], requestObject['query'],
+                                                                requestObject['ID'], requestObject['query'],
                                                                 requestObject['hops'] + 1)
                             myResponse = json.dumps(requestObject)
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
@@ -342,6 +341,11 @@ while keepRunning:
                                                                 currNode.id, requestObject['query'],
                                                                 requestObject['hops'] + 1)
                             mySocket.sendto(myResponse, (requestObject['hostname'], requestObject['port']))
+                    elif requestCmd == 'owner':
+                        print("The owner of the query is: ", (requestObject['hostname'], requestObject['port']))
+                        print("Required: ", requestObject['hops'], "hops to get this query: ", requestObject['query'])
+                    else:  # wrong type of message
+                        print("The received message is in the wrong format (we don't support this given cmd!")
                 else:  # in the case there is no "cmd": "myPred" in the response
                     continue
             except socket.timeout as toe:
