@@ -244,10 +244,8 @@ currNode = Node()
 address = (currNode.host, currNode.port)
 
 # jsonFile = open("object.json", "r+")
-jsonFile = {"cmd": "", "port": 0, "ID": 0, "hostname": "", "query": "", "hops": 0
-}
-jsonContent = json.load(jsonFile)  # jsonContent is now a json object
-jsonFile.close()
+jsonFile = '{"cmd": "", "port": 0, "ID": 0, "hostname": "", "query": "", "hops": 0}'
+jsonContent = json.loads(jsonFile)  # jsonContent is now a json object
 
 jsonContent["cmd"] = "pred?"
 jsonContent["port"] = currNode.port
