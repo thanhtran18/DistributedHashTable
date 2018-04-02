@@ -7,13 +7,11 @@ import json
 import datetime
 import time
 import sys
-
 from os import environ
 
 key_size = 16
 
 
-# todo: handle the input in the while loop with 'cmd' and 'me'
 class Node:
     def __init__(self):
         self.port = 15086
@@ -94,7 +92,6 @@ def checkSuccessor(succHostname, succPort):
     try:
         (recvData, addr) = mySocket.recvfrom(4096)
         if recvData:
-            # print("Receiced message from: ", str(addr), " (check successor): ", recvData)
             print("Received message from: {0} (in checkSuccessor): {1}".format(str(addr), recvData))
             receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
             if 'me' not in receivedMsg and 'thePred' not in receivedMsg:
@@ -119,8 +116,6 @@ def checkSuccessor(succHostname, succPort):
         print("Attempting to set the last known node as my successor to join the ring...")
         receivedMsg = currNode.lastKnownResponse
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
-        # print("Sent 'setPred' message to last known node: ", (currNode.lastKnownResponse['me']['hostname'],
-        #                                            currNode.lastKnownResponse['me']['port']))
         print("Sent 'setPred' message to last known node: [{0}, {1}]".format(
             currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'],
@@ -148,17 +143,13 @@ def joinTheRing(hostname, port):
         return
 
     if wholeResponse['thePred']['ID'] < currNode.id or wholeResponse['thePred']['ID'] == 0:
-        # newMessage = wholeResponse['thePred']
         newMessageStr = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
-        # newMessageStr = json.dumps(newMessage)
 
         mySocket.sendto(newMessageStr, (wholeResponse['me']['hostname'], wholeResponse['me']['port']))
         print(4)
         print("My message with 'setPred' cmd (join the ring): {0}".format(newMessageStr))
         currNode.setSuccessor(wholeResponse['me'])
         # logging
-        # print("My current successor: [", currNode.successor['hostname'], ", ", currNode.successor['port'], ", ",
-        #       currNode.successor['ID'], "]")
         print("My current predecessor: [{0}, {1}, {2}]".format(currNode.successor['hostname'],
                                                                currNode.successor['port'], currNode.successor['ID']))
         print()
@@ -183,7 +174,6 @@ def stabilize():
         print(5)
         print("Sent 'pred?' to my successor at: {0}".format(str(succAddr)))
         (recvData, addr) = mySocket.recvfrom(4096)
-        # print("Sender's address: ", address)
         print("Received successor's message (stabilize): {0}".format(recvData))
         receivedMsg = json.loads(recvData)  # receivedMsg is now a json object
 
@@ -238,17 +228,13 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 
     elif requestCmd == 'setPred':
         # save 'me' (the sender) as my pred now
-        # print("My predecessor has changed - Old predecessor: [", currNode.predecessorHostname, ", ",
-        #       currNode.predecessorPort, ", ", currNode.id, "]")
         print("My predecessor has changed - Old predecessor: [{0}, {1}, {2}]".format(
             currNode.predecessorHostname, currNode.predecessorPort, currNode.id))
         currNode.savePredHost(inputObject['hostname'])
         currNode.savePredId(inputObject['ID'])
         currNode.savePredPort(inputObject['port'])
-        # print("New predecessor: [", currNode.predecessorHostname, ", ", currNode.predecessorPort, ", ",currNode.id, "]")
         print("New predecessor: [{0}, {1}, {2}]".format(currNode.predecessorHostname, currNode.predecessorPort,
                                                         currNode.id))
-
     return responseMsg
 
 
@@ -317,8 +303,6 @@ while keepRunning:
                     jsonContent = json.loads(jsonFile)
                     findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id,
                                                          int(queryKey), currNode.hops)
-                    # print('Sent "find" message to: [', currNode.successor["hostname"], ', ', currNode.successor["port"],
-                    #       '] with query: ', int(queryKey))
                     print('Sent "find" message to: [{0}, {1}]'.format(currNode.successor["hostname"],
                                                                       currNode.successor["port"]))
                     print("")
@@ -326,7 +310,7 @@ while keepRunning:
                     print(9)
 
         elif desc == socketFD:
-            print("-------------------------------------------------------------------------")
+            print("-------------------------------------------------------------------------------------------")
             print("Getting socket message...")
             mySocket.settimeout(10)
             try:
@@ -362,7 +346,6 @@ while keepRunning:
                                                                 requestObject['port'], requestObject['hostname'],
                                                                 requestObject['ID'], requestObject['query'],
                                                                 requestObject['hops'] + 1)
-                            # myResponse = json.dumps(requestObject)
 
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
                             print(11)
@@ -374,8 +357,6 @@ while keepRunning:
                             print(12)
 
                     elif requestCmd == 'owner':
-                        # print("Owner of the query: [", (requestObject['hostname'], requestObject['port']), "]")
-                        # print("Required: ", requestObject['hops'], "hops to get this query: ", requestObject['query'])
                         print("Owner of the query: [{0}, {1}]".format(requestObject['hostname'], requestObject['port']))
                         print("Required: {0} hops to get this query: {1}".format(str(requestObject['hops']),
                                                                                  str(requestObject['query'])))
