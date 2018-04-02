@@ -59,7 +59,7 @@ class Node:
         return self.query
 
 
-# this returns a string
+# This method builds up a message to be sent and returns a string (jsonObject is a dictionary)
 def createMessage(jsonObject, command, port, hostname, id):
     jsonObject['cmd'] = command
     jsonObject['port'] = port
@@ -68,6 +68,7 @@ def createMessage(jsonObject, command, port, hostname, id):
     return json.dumps(jsonObject)
 
 
+# This method builds up a message to be sent and returns a string (jsonObject is a dictionary)
 def createMessageWithQuery(jsonObject, command, port, hostname, id, query, hops):
     jsonObject['cmd'] = command
     jsonObject['port'] = port
@@ -78,7 +79,7 @@ def createMessageWithQuery(jsonObject, command, port, hostname, id, query, hops)
     return json.dumps(jsonObject)
 
 
-# this returns a json object
+# this method sends "pred?" message to his successor and tries to receive the response in 2 seconds.returns a dictionary
 def checkSuccessor(succHostname, succPort):
     succAddr = (succHostname, succPort)
 
@@ -114,7 +115,7 @@ def checkSuccessor(succHostname, succPort):
         print("Didn't get the respond (check successor)...timeout: {0}".format(toe))
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         print("Attempting to set the last known node as my successor to join the ring...")
-        receivedMsg = currNode.lastKnownResponse
+
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
         print("Sent 'setPred' message to last known node: [{0}, {1}]".format(
             currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
@@ -127,15 +128,15 @@ def checkSuccessor(succHostname, succPort):
     return receivedMsg
 
 
-# hostname of port of the successor
+# this method tries to join the current node to the ring. accepts hostname and port number as parameters
 def joinTheRing(hostname, port):
     print("-------------------------------------------------------------------------------------------")
     print("My id: ", currNode.id)
 
-    wholeResponse = checkSuccessor(hostname, port)  # check with the bootstrap now, this is a json object
+    wholeResponse = checkSuccessor(hostname, port)  # send "pred?" message to the successor, with this is a json object
     if wholeResponse == {}:
         return
-    nextTime = time.time()
+
     if wholeResponse['thePred']['port'] == currNode.port and wholeResponse['thePred']['ID'] == currNode.id:
         print("I'm in the correct position already")
         currNode.setInRing(True)
@@ -155,18 +156,16 @@ def joinTheRing(hostname, port):
         print()
         print("==> Joined the ring!")
         currNode.setInRing(True)
-
+    # recurse on the predecessor of the successor
     else:
         joinTheRing(wholeResponse['thePred']['hostname'], wholeResponse['thePred']['port'])
 
 
+# this method tries to stabilize the current node with the rest of ring
 def stabilize():
     print("-------------------------------------------------------------------------------------------")
     newMessage = createMessage(jsonContent, "pred?", currNode.port, currNode.host, currNode.id)
     succAddr = (currNode.successor['hostname'], currNode.successor['port'])
-    predId = 0
-    recvData = ''
-    receivedMsg = ''
     mySocket.settimeout(2)
 
     try:
@@ -193,7 +192,7 @@ def stabilize():
             print(7)
             currNode.setSuccessor(receivedMsg['thePred'])
 
-        elif predId < currNode.id:  # if successor's predecessor is greater (after) you...
+        elif predId < currNode.id:  # if successor's predecessor is smaller (before) you...
             print("Trying to stabilize - Sending 'setPred' to 'me'...")
             updatePredMsg = createMessage(jsonContent, "setPred", currNode.port, currNode.host, currNode.id)
             newSuccAddr = (receivedMsg['me']['hostname'], receivedMsg['me']['port'])
@@ -202,7 +201,7 @@ def stabilize():
 
         else:
             print("\nThis is me in stabilization (in the correct position)...\n")
-
+    # rejoin the ring if there is no response
     except socket.timeout as toe:
         currNode.setInRing(False)
         print("Didn't get the respond (stabilize)...timeout: {0}".format(toe))
@@ -211,8 +210,8 @@ def stabilize():
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
 
 
-# this returns a string
-# input doesn't contain 'me' or 'thePred'
+# this method handles the message received from other sockets, with "pred?" and "setPred" command, returns a string
+# input message doesn't contain 'me' or 'thePred' as keys
 def replyToRequest(inputMessage):  # inputMessage is a string
     responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred",
                       "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
@@ -242,9 +241,8 @@ def replyToRequest(inputMessage):  # inputMessage is a string
 currNode = Node()
 address = (currNode.host, currNode.port)
 
-# jsonFile = open("object.json", "r+")
 jsonFile = '{"cmd": "", "port": 0, "ID": 0, "hostname": "", "query": "", "hops": 0}'
-jsonContent = json.loads(jsonFile)  # jsonContent is now a json object
+jsonContent = json.loads(jsonFile)  # jsonContent is now a dictionary
 
 jsonContent["cmd"] = "pred?"
 jsonContent["port"] = currNode.port
@@ -258,7 +256,7 @@ mySocket.bind(address)
 nexttime = time.time()
 timer = 0
 
-# handle input
+# handle different inputs
 # todo: should be able to stop immediately after pressing enter
 
 keepRunning = True
@@ -266,17 +264,18 @@ while keepRunning:
     socketFD = mySocket.fileno()  # file descriptor (an int)
     (readFD, writeFD, errorFD) = select.select([socketFD, sys.stdin], [], [], 0.0)
 
-    if not currNode.isInRing():
+    if not currNode.isInRing():  # join the ring if the node is not in the ring yet
         print("\nI'm not in the ring yet...")
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
-    else:
+    else:  # stabilize every 15 seconds
         time.sleep(0.5)
         timer += 0.5
         if 15 <= timer <= 16:
             stabilize()
             timer = 0
 
-    for desc in readFD:
+    for desc in readFD:  # choose from different types of input
+        # if input is standard input
         if desc == sys.stdin:
             print("Getting stdin...")
             userInput = sys.stdin.readline()
@@ -292,7 +291,7 @@ while keepRunning:
                     queryKey = int(userInput)
                     if queryKey > currNode.bootstrapId:
                         queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
-                except ValueError:
+                except ValueError:  # generates a random number if user entered something else other than an int
                     print("Wrong input format. It's supposed to be an int")
                     queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
                     print("Generated this new query: {0}".format(queryKey))
@@ -308,7 +307,7 @@ while keepRunning:
                     print("")
                     mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
                     print(9)
-
+        # if input is a socket message
         elif desc == socketFD:
             print("-------------------------------------------------------------------------------------------")
             print("Getting socket message...")
@@ -322,6 +321,7 @@ while keepRunning:
                 print("Sender: {0}".format(str(senderAddr)))
                 print("Received message: {0}".format(requestMsg))
 
+                # handle different types of socket messages
                 requestObject = json.loads(requestMsg)
                 if "cmd" in requestObject and 'me' in requestObject:
                     if requestObject['thePred']['port'] == currNode.port:
@@ -349,6 +349,7 @@ while keepRunning:
 
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], currNode.successor['port']))
                             print(11)
+                        # return the owner message if it is my key
                         else:
                             myResponse = createMessageWithQuery(jsonContent, "owner", currNode.port, currNode.host,
                                                                 currNode.id, requestObject['query'],
