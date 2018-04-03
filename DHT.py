@@ -17,8 +17,8 @@ class Node:
         self.port = 15086
         self.host = socket.gethostname()
         self.predecessorId = 0
-        self.predecessorHostname = ''
-        self.predecessorPort = -1
+        self.predecessorHostname = 'silicon.cs.umanitoba.ca'
+        self.predecessorPort = 15000
         self.successor = {"hostname": '', "port": -1, "ID": 0}
         self.id = random.randint(1, 2 ** key_size - 2)
         # self.id = 65533
@@ -125,6 +125,8 @@ def checkSuccessor(succHostname, succPort):
         currNode.setSuccessor(currNode.lastKnownResponse['me'])
         currNode.setInRing(True)
         receivedMsg = {}
+    except ValueError as ve:
+        print("Received invalid message: {0}, error: {1}".format(recvData, ve))
     return receivedMsg
 
 
@@ -208,6 +210,8 @@ def stabilize():
         print('Timestamp error: {:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now()))
         print("Attempting to rejoin the ring...")
         joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+    except ValueError as ve:
+        print("Received invalid message: {0}, error: {1}".format(recvData, ve))
 
 
 # this method handles the message received from other sockets, with "pred?" and "setPred" command, returns a string
@@ -216,24 +220,27 @@ def replyToRequest(inputMessage):  # inputMessage is a string
     responseObject = {"me": {"hostname": currNode.host, "port": currNode.port, "ID": currNode.id}, "cmd": "myPred",
                       "thePred": {"hostname": currNode.bootstrapHost, "port": currNode.bootstrapPort, "ID": 0}}
     responseMsg = ''
-    inputObject = json.loads(inputMessage)
-    requestCmd = inputObject['cmd']
-    if requestCmd == 'pred?':
-        responseObject['thePred']['hostname'] = currNode.predecessorHostname
-        responseObject['thePred']['port'] = currNode.predecessorPort
-        responseObject['thePred']['ID'] = currNode.predecessorId
-        responseMsg = json.dumps(responseObject)
-        print("My response: {0}".format(responseMsg))
+    try:
+        inputObject = json.loads(inputMessage)
+        requestCmd = inputObject['cmd']
+        if requestCmd == 'pred?':
+            responseObject['thePred']['hostname'] = currNode.predecessorHostname
+            responseObject['thePred']['port'] = currNode.predecessorPort
+            responseObject['thePred']['ID'] = currNode.predecessorId
+            responseMsg = json.dumps(responseObject)
+            print("My response: {0}".format(responseMsg))
 
-    elif requestCmd == 'setPred':
-        # save 'me' (the sender) as my pred now
-        print("My predecessor has changed - Old predecessor: [{0}, {1}, {2}]".format(
-            currNode.predecessorHostname, currNode.predecessorPort, currNode.id))
-        currNode.savePredHost(inputObject['hostname'])
-        currNode.savePredId(inputObject['ID'])
-        currNode.savePredPort(inputObject['port'])
-        print("New predecessor: [{0}, {1}, {2}]".format(currNode.predecessorHostname, currNode.predecessorPort,
-                                                        currNode.id))
+        elif requestCmd == 'setPred':
+            # save 'me' (the sender) as my pred now
+            print("My predecessor has changed - Old predecessor: [{0}, {1}, {2}]".format(
+                currNode.predecessorHostname, currNode.predecessorPort, currNode.id))
+            currNode.savePredHost(inputObject['hostname'])
+            currNode.savePredId(inputObject['ID'])
+            currNode.savePredPort(inputObject['port'])
+            print("New predecessor: [{0}, {1}, {2}]".format(currNode.predecessorHostname, currNode.predecessorPort,
+                                                            currNode.id))
+    except ValueError as ve:
+        print("Received invalid message: {0}, error: {1}".format(inputMessage, ve))
     return responseMsg
 
 
@@ -342,7 +349,7 @@ while keepRunning:
                     elif requestCmd == 'find':
                         # pass the message to my successor if the query is not my id
                         if requestObject['query'] != currNode.id:
-                            myResponse = createMessageWithQuery(requestObject, requestObject['cmd'],
+                            myResponse = createMessageWithQuery(jsonContent, requestObject['cmd'],
                                                                 requestObject['port'], requestObject['hostname'],
                                                                 requestObject['ID'], requestObject['query'],
                                                                 requestObject['hops'] + 1)
@@ -370,4 +377,6 @@ while keepRunning:
 
             except socket.timeout as toe:
                 print("There is no request message! {0}".format(toe))
+            except ValueError as ve:
+                print("Received invalid message: {0}, error: {1}".format(requestMsg, ve))
 
