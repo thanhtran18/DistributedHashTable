@@ -105,6 +105,9 @@ def checkSuccessor(succHostname, succPort):
                                                     currNode.lastKnownResponse['me']['port']))
                     print(2)
                     return {}
+                # else:
+                #     print("Received invalid response for 'pred?' request")
+                #     return {}
                 replyToRequest(recvData)
                 return currNode.lastKnownResponse
             predId = receivedMsg['thePred']['ID']
@@ -117,6 +120,8 @@ def checkSuccessor(succHostname, succPort):
         print("Attempting to set the last known node as my successor to join the ring...")
 
         newMessageStr = createMessage(jsonContent, 'setPred', currNode.port, currNode.host, currNode.id)
+        if 'me' not in currNode.lastKnownResponse and 'thePred' not in currNode.lastKnownResponse:
+            print("*** ERROR: Didn't get a response from the bootstrap!!! ***\n")
         print("Sent 'setPred' message to last known node: [{0}, {1}]".format(
             currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'],
@@ -160,7 +165,7 @@ def joinTheRing(hostname, port):
         currNode.setInRing(True)
     # recurse on the predecessor of the successor
     else:
-        joinTheRing(wholeResponse['thePred']['hostname'], wholeResponse['thePred']['port'])
+        joinTheRing(wholeResponse['thePred']['hostname'], int(wholeResponse['thePred']['port']))
 
 
 # this method tries to stabilize the current node with the rest of ring
@@ -183,7 +188,8 @@ def stabilize():
             mySocket.sendto(updatePredMsg, addr)
             print(6)
             return
-
+        elif 'cmd' in receivedMsg and 'thePred' in receivedMsg and receivedMsg['cmd'] == 'pred?':
+            return
         predId = receivedMsg['thePred']['ID']
 
         if predId > currNode.id:  # if successor's predecessor is greater (after) you...
@@ -273,7 +279,7 @@ while keepRunning:
 
     if not currNode.isInRing():  # join the ring if the node is not in the ring yet
         print("\nI'm not in the ring yet...")
-        joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
+        joinTheRing(currNode.bootstrapHost, int(currNode.bootstrapPort))
     else:  # stabilize every 15 seconds
         time.sleep(0.5)
         timer += 0.5
@@ -309,10 +315,11 @@ while keepRunning:
                     jsonContent = json.loads(jsonFile)
                     findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id,
                                                          int(queryKey), currNode.hops)
+                    mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
                     print('Sent "find" message to: [{0}, {1}]'.format(currNode.successor["hostname"],
                                                                       currNode.successor["port"]))
+                    print("Find message: {0}".format(findMessage))
                     print("")
-                    mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
                     print(9)
         # if input is a socket message
         elif desc == socketFD:
@@ -331,6 +338,9 @@ while keepRunning:
                 # handle different types of socket messages
                 requestObject = json.loads(requestMsg)
                 if "cmd" in requestObject and 'me' in requestObject:
+                    if requestObject['cmd'] == 'pred?':
+                        print("The received message is in the wrong format!")
+                        continue
                     if requestObject['thePred']['port'] == currNode.port:
                         # if you meet your old version
                         if requestObject['thePred']['ID'] != currNode.id:
