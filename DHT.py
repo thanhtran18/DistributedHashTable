@@ -9,6 +9,7 @@ import time
 import sys
 from os import environ
 
+
 key_size = 16
 
 
@@ -21,7 +22,6 @@ class Node:
         self.predecessorPort = 15000
         self.successor = {"hostname": '', "port": -1, "ID": 0}
         self.id = random.randint(1, 2 ** key_size - 2)
-        # self.id = 64308
         self.bootstrapPort = 15000
         self.bootstrapHost = 'silicon.cs.umanitoba.ca'
         self.bootstrapId = 2 ** key_size - 1
@@ -105,9 +105,6 @@ def checkSuccessor(succHostname, succPort):
                                                     int(currNode.lastKnownResponse['me']['port'])))
                     print(2)
                     return {}
-                # else:
-                #     print("Received invalid response for 'pred?' request")
-                #     return {}
                 replyToRequest(recvData)
                 return currNode.lastKnownResponse
             predId = receivedMsg['thePred']['ID']
@@ -125,7 +122,7 @@ def checkSuccessor(succHostname, succPort):
         print("Sent 'setPred' message to last known node: [{0}, {1}]".format(
             currNode.lastKnownResponse['me']['hostname'], currNode.lastKnownResponse['me']['port']))
         mySocket.sendto(newMessageStr, (currNode.lastKnownResponse['me']['hostname'],
-                                        currNode.lastKnownResponse['me']['port']))
+                                        int(currNode.lastKnownResponse['me']['port'])))
         print(3)
         currNode.setSuccessor(currNode.lastKnownResponse['me'])
         currNode.setInRing(True)
@@ -168,7 +165,6 @@ def joinTheRing(hostname, port):
         joinTheRing(wholeResponse['thePred']['hostname'], int(wholeResponse['thePred']['port']))
 
 
-# todo: only stabilize when we get a new query (a "find" query)
 # this method tries to stabilize the current node with the rest of ring
 def stabilize():
     print("-------------------------------------------------------------------------------------------")
@@ -240,7 +236,7 @@ def replyToRequest(inputMessage):  # inputMessage is a string
         elif requestCmd == 'setPred':
             # save 'me' (the sender) as my pred now
             print("My predecessor has changed - Old predecessor: [{0}, {1}, {2}]".format(
-                currNode.predecessorHostname, currNode.predecessorPort, currNode.id))
+                currNode.predecessorHostname, currNode.predecessorPort, currNode.predecessorId))
             currNode.savePredHost(inputObject['hostname'])
             currNode.savePredId(inputObject['ID'])
             currNode.savePredPort(inputObject['port'])
@@ -271,7 +267,6 @@ nexttime = time.time()
 timer = 0
 
 # handle different inputs
-# todo: should be able to stop immediately after pressing enter
 
 keepRunning = True
 while keepRunning:
@@ -281,18 +276,11 @@ while keepRunning:
     if not currNode.isInRing():  # join the ring if the node is not in the ring yet
         print("\nI'm not in the ring yet...")
         joinTheRing(currNode.bootstrapHost, int(currNode.bootstrapPort))
-    else:  # stabilize every 15 seconds
-        if currNode.predecessorPort == currNode.port:
-            joinTheRing(currNode.bootstrapHost, currNode.bootstrapPort)
-        time.sleep(0.5)
-        timer += 0.5
-        if 15 <= timer <= 16:
-            stabilize()
-            timer = 0
 
     for desc in readFD:  # choose from different types of input
         # if input is standard input
         if desc == sys.stdin:
+            stabilize()
             print("Getting stdin...")
             userInput = sys.stdin.readline()
 
@@ -314,11 +302,12 @@ while keepRunning:
                 finally:
                     while queryKey <= currNode.id:
                         queryKey = random.randint(currNode.id + 1, 2 ** key_size - 1)
+                        print("The query is too small. Generated this new query: {0}".format(queryKey))
                     jsonFile = '{"cmd": "", "port": 0, "ID": 0, "hostname": "", "query": "", "hops": 0}'
                     jsonContent = json.loads(jsonFile)
                     findMessage = createMessageWithQuery(jsonContent, "find", currNode.port, currNode.host, currNode.id,
                                                          int(queryKey), currNode.hops)
-                    mySocket.sendto(findMessage, (currNode.successor['hostname'], currNode.successor['port']))
+                    mySocket.sendto(findMessage, (currNode.successor['hostname'], int(currNode.successor['port'])))
                     print('Sent "find" message to: [{0}, {1}]'.format(currNode.successor["hostname"],
                                                                       currNode.successor["port"]))
                     print("Find message: {0}".format(findMessage))
@@ -342,12 +331,14 @@ while keepRunning:
                 requestObject = json.loads(requestMsg)
                 if "cmd" in requestObject and 'me' in requestObject:
                     if requestObject["cmd"] == "setPred":
-                        print("'setPred' message is in the wrong format!")
+                        print("'setPred' message is in the wrong format but still able to set the sender as my pred!")
+                        replyToRequest(requestMsg)
                         continue
                     if requestObject['cmd'] == 'pred?':
-                        print("The received message is in the wrong format!")
+                        # print("The received message is in the wrong format!")
+                        replyToRequest(requestMsg)
                         continue
-                    if requestObject['thePred']['port'] == currNode.port:
+                    if 'port' in requestObject['thePred'] and int(requestObject['thePred']['port']) == currNode.port:
                         # if you meet your old version
                         if requestObject['thePred']['ID'] != currNode.id:
                             joinTheRing(requestObject['me']['hostname'], requestObject['me']['port'])
@@ -363,14 +354,19 @@ while keepRunning:
                         print(10)
 
                     elif requestCmd == 'find':
+                        stabilize()
+                        print("Got a find message!")
                         # pass the message to my successor if the query is not my id
-                        if requestObject['query'] != currNode.id:
+                        if 'query' in requestObject and 'ID' in requestObject and 'port' in requestObject and \
+                                'hops' in requestObject and 'hostname' in requestObject \
+                                and requestObject['query'] != currNode.id:
                             myResponse = createMessageWithQuery(jsonContent, requestObject['cmd'],
                                                                 requestObject['port'], requestObject['hostname'],
                                                                 requestObject['ID'], requestObject['query'],
                                                                 requestObject['hops'] + 1)
 
                             mySocket.sendto(myResponse, (currNode.successor['hostname'], int(currNode.successor['port'])))
+                            print("Passed it to my successor!")
                             print(11)
                         # return the owner message if it is my key
                         else:
@@ -378,6 +374,8 @@ while keepRunning:
                                                                 currNode.id, requestObject['query'],
                                                                 requestObject['hops'] + 1)
                             mySocket.sendto(myResponse, (requestObject['hostname'], int(requestObject['port'])))
+                            print("Got a 'find' message with query is my id. Sent 'owner' message back to [{0}, {1}]!".
+                                  format(requestObject['hostname'], requestObject['port']))
                             print(12)
 
                     elif requestCmd == 'owner':
